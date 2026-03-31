@@ -1,0 +1,14 @@
+
+
+# Projectdocs
+projectdocs/
+.vscode/changelists.json
+projectdocs
+node_modules
+.playwright-mcp
+*.pyc
+__pycache__
+pdfdiff/build
+pdfdiff/dist
+pdfdiff/*.egg-info
+pdfdiff/*.egg

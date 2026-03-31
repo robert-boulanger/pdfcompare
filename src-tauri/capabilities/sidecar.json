@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "sidecar",
+  "description": "Permission to execute the pdfdiff sidecar binary",
+  "windows": ["main"],
+  "permissions": [
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "pdfdiff",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
+  ]
+}

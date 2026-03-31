@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdfdiff"
+version = "0.1.0"
+description = "PDF comparison and typographic analysis tool"
+requires-python = ">=3.11"
+dependencies = [
+    "PyMuPDF>=1.25",
+    "typer>=0.15",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+pdfdiff = "pdfdiff.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pdfdiff*"]
