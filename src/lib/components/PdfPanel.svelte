@@ -5,6 +5,7 @@
 	import type { TextContent } from 'pdfjs-dist/types/src/display/api';
 	import type { Highlight, ValidationHighlight } from '$lib/types/diff';
 	import type { Annotation, AnnotationTool } from '$lib/types/annotations';
+	import NotePopover from './NotePopover.svelte';
 
 	export interface ScrollInfo {
 		page: number;
@@ -26,10 +27,11 @@
 		onAnnotationCreate?: (ann: Omit<Annotation, 'id'>) => void;
 		onAnnotationSelect?: (id: string | null) => void;
 		onAnnotationUpdate?: (id: string, updates: Partial<Annotation>) => void;
+		onAnnotationDelete?: (id: string) => void;
 		annotationColor?: [number, number, number];
 	}
 
-	let { pdfPath, label, side = 'left', highlights = [], activeHighlightIndex = null, validationHighlights = [], onHighlightClick, onScrollChange, annotations = [], selectedAnnotationId = null, annotationTool = 'none', onAnnotationCreate, onAnnotationSelect, onAnnotationUpdate, annotationColor = [1, 1, 0] }: Props = $props();
+	let { pdfPath, label, side = 'left', highlights = [], activeHighlightIndex = null, validationHighlights = [], onHighlightClick, onScrollChange, annotations = [], selectedAnnotationId = null, annotationTool = 'none', onAnnotationCreate, onAnnotationSelect, onAnnotationUpdate, onAnnotationDelete, annotationColor = [1, 1, 0] }: Props = $props();
 
 	let isProgrammaticScroll = false;
 
@@ -457,33 +459,31 @@
 				el.style.pointerEvents = 'auto';
 				el.style.cursor = 'pointer';
 				if (ann.content) el.title = ann.content;
-				el.addEventListener('click', (e) => { e.stopPropagation(); onAnnotationSelect?.(ann.id); });
+				el.addEventListener('click', (e) => {
+					e.stopPropagation();
+					onAnnotationSelect?.(ann.id);
+					showPopoverForAnnotation(ann);
+				});
 				overlay.appendChild(el);
-			} else if (ann.type === 'freetext') {
-				const [x0, y0, x1, y1] = ann.bbox;
-				const hex = rgbToHex(ann.color);
-				const el = document.createElement('div');
-				el.className = 'pdf-annotation ann-freetext';
-				if (isSelected) el.classList.add('ann-selected');
-				el.dataset.annId = ann.id;
-				el.style.position = 'absolute';
-				el.style.left = `${x0 * scale}px`;
-				el.style.top = `${y0 * scale}px`;
-				el.style.width = `${(x1 - x0) * scale}px`;
-				el.style.height = `${(y1 - y0) * scale}px`;
-				el.style.background = 'rgba(255,255,255,0.9)';
-				el.style.border = isSelected ? '2px solid var(--accent-blue, #007aff)' : `1px solid ${hex}`;
-				el.style.borderRadius = '3px';
-				el.style.padding = '2px 4px';
-				el.style.fontSize = `${ann.fontSize * scale}px`;
-				el.style.color = hex;
-				el.style.overflow = 'hidden';
-				el.style.pointerEvents = 'auto';
-				el.style.cursor = 'pointer';
-				el.style.lineHeight = '1.2';
-				el.textContent = ann.text;
-				el.addEventListener('click', (e) => { e.stopPropagation(); onAnnotationSelect?.(ann.id); });
-				overlay.appendChild(el);
+
+				// Show comment icon if highlight has content
+				if (ann.content) {
+					const badge = document.createElement('div');
+					badge.className = 'pdf-annotation ann-comment-badge';
+					badge.style.position = 'absolute';
+					badge.style.left = `${x1 * scale - 2}px`;
+					badge.style.top = `${y0 * scale - 8}px`;
+					badge.style.fontSize = '12px';
+					badge.style.cursor = 'pointer';
+					badge.style.pointerEvents = 'auto';
+					badge.textContent = '💬';
+					badge.addEventListener('click', (e) => {
+						e.stopPropagation();
+						onAnnotationSelect?.(ann.id);
+						showPopoverForAnnotation(ann);
+					});
+					overlay.appendChild(badge);
+				}
 			} else if (ann.type === 'note') {
 				const [x, y] = ann.point;
 				const el = document.createElement('div');
@@ -493,19 +493,99 @@
 				el.style.position = 'absolute';
 				el.style.left = `${x * scale - 10}px`;
 				el.style.top = `${y * scale - 10}px`;
-				el.style.width = '20px';
-				el.style.height = '20px';
-				el.style.fontSize = '16px';
-				el.style.lineHeight = '20px';
+				el.style.width = '22px';
+				el.style.height = '22px';
+				el.style.fontSize = '17px';
+				el.style.lineHeight = '22px';
 				el.style.textAlign = 'center';
 				el.style.cursor = 'pointer';
 				el.style.pointerEvents = 'auto';
 				el.style.filter = isSelected ? 'drop-shadow(0 0 3px var(--accent-blue, #007aff))' : 'none';
-				el.textContent = '📌';
+				el.textContent = '💬';
 				el.title = ann.text;
-				el.addEventListener('click', (e) => { e.stopPropagation(); onAnnotationSelect?.(ann.id); });
+				el.addEventListener('click', (e) => {
+					e.stopPropagation();
+					onAnnotationSelect?.(ann.id);
+					showPopoverForAnnotation(ann);
+				});
 				overlay.appendChild(el);
 			}
+		}
+	}
+
+	// Popover state — managed via reactive state, rendered in Svelte template
+	let popover: { x: number; y: number; text: string; annId: string; annType: 'highlight' | 'note' } | null = $state(null);
+	let pendingNote: { pageNum: number; pdfX: number; pdfY: number; screenX: number; screenY: number } | null = $state(null);
+
+	function showPopoverForAnnotation(ann: Annotation) {
+		if (!containerEl) return;
+		const containerRect = containerEl.getBoundingClientRect();
+
+		if (ann.type === 'note') {
+			const [x, y] = ann.point;
+			const pageData = renderedPages.get(ann.page);
+			if (!pageData) return;
+			const wrapper = pageData.canvas.closest('.pdf-page-wrapper') as HTMLElement;
+			if (!wrapper) return;
+			const wrapperRect = wrapper.getBoundingClientRect();
+			popover = {
+				x: wrapperRect.left - containerRect.left + x * scale,
+				y: wrapperRect.top - containerRect.top + y * scale,
+				text: ann.text,
+				annId: ann.id,
+				annType: 'note'
+			};
+		} else if (ann.type === 'highlight') {
+			const [, , x1, y0] = ann.bbox;
+			const pageData = renderedPages.get(ann.page);
+			if (!pageData) return;
+			const wrapper = pageData.canvas.closest('.pdf-page-wrapper') as HTMLElement;
+			if (!wrapper) return;
+			const wrapperRect = wrapper.getBoundingClientRect();
+			popover = {
+				x: wrapperRect.left - containerRect.left + x1 * scale,
+				y: wrapperRect.top - containerRect.top + y0 * scale,
+				text: ann.content ?? '',
+				annId: ann.id,
+				annType: 'highlight'
+			};
+		}
+	}
+
+	function closePopover() {
+		popover = null;
+		pendingNote = null;
+	}
+
+	function handlePopoverSubmit(text: string) {
+		if (pendingNote && onAnnotationCreate) {
+			onAnnotationCreate({
+				type: 'note',
+				page: pendingNote.pageNum,
+				point: [pendingNote.pdfX, pendingNote.pdfY],
+				text,
+				icon: 'Comment',
+				color: annotationColor
+			} as Omit<Annotation, 'id'>);
+			pendingNote = null;
+			return;
+		}
+		if (popover && onAnnotationUpdate) {
+			if (popover.annType === 'note') {
+				onAnnotationUpdate(popover.annId, { text });
+			} else if (popover.annType === 'highlight') {
+				onAnnotationUpdate(popover.annId, { content: text || undefined });
+			}
+		}
+		popover = null;
+	}
+
+	function handlePopoverDelete() {
+		if (popover) {
+			const id = popover.annId;
+			popover = null;
+			onAnnotationSelect?.(null);
+			onAnnotationDelete?.(id);
 		}
 	}
 
@@ -556,7 +636,7 @@
 		const hit = getPageAndCoords(e);
 		if (!hit) return;
 
-		if (annotationTool === 'highlight' || annotationTool === 'freetext') {
+		if (annotationTool === 'highlight') {
 			e.preventDefault();
 			dragStart = { x: hit.pdfX, y: hit.pdfY, pageNum: hit.pageNum };
 
@@ -576,17 +656,16 @@
 			dragRect = rect;
 		} else if (annotationTool === 'note') {
 			e.preventDefault();
-			const text = prompt('Note text:');
-			if (text) {
-				onAnnotationCreate({
-					type: 'note',
-					page: hit.pageNum,
-					point: [hit.pdfX, hit.pdfY],
-					text,
-					icon: 'Comment',
-					color: annotationColor
-				} as Omit<Annotation, 'id'>);
-			}
+			if (!containerEl) return;
+			const containerRect = containerEl.getBoundingClientRect();
+			const wrapperRect = hit.wrapper.getBoundingClientRect();
+			pendingNote = {
+				pageNum: hit.pageNum,
+				pdfX: hit.pdfX,
+				pdfY: hit.pdfY,
+				screenX: wrapperRect.left - containerRect.left + hit.pdfX * scale,
+				screenY: wrapperRect.top - containerRect.top + hit.pdfY * scale,
+			};
 		}
 	}
 
@@ -650,18 +729,6 @@
 				bbox,
 				color: annotationColor,
 			} as Omit<Annotation, 'id'>);
-		} else if (annotationTool === 'freetext') {
-			const text = prompt('Text:');
-			if (text) {
-				onAnnotationCreate({
-					type: 'freetext',
-					page: dragStart.pageNum,
-					bbox,
-					text,
-					fontSize: 11,
-					color: annotationColor,
-				} as Omit<Annotation, 'id'>);
-			}
 		}
 
 		dragStart = null;
@@ -850,6 +917,28 @@
 		{/if}
 		</div>
 	</div>
+
+	{#if popover}
+		<NotePopover
+			x={popover.x}
+			y={popover.y}
+			text={popover.text}
+			placeholder={popover.annType === 'highlight' ? 'Add a comment...' : 'Note text...'}
+			onSubmit={handlePopoverSubmit}
+			onCancel={closePopover}
+			onDelete={handlePopoverDelete}
+		/>
+	{/if}
+
+	{#if pendingNote}
+		<NotePopover
+			x={pendingNote.screenX}
+			y={pendingNote.screenY}
+			placeholder="Note text..."
+			onSubmit={handlePopoverSubmit}
+			onCancel={closePopover}
+		/>
+	{/if}
 </div>
 
 <style>

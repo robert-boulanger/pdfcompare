@@ -99,10 +99,6 @@
 		if (e.key === 'h' && !(e.target as HTMLElement).closest('input, textarea')) {
 			ann.setTool(ann.activeTool === 'highlight' ? 'none' : 'highlight');
 		}
-		// T → FreeText tool
-		if (e.key === 't' && !(e.target as HTMLElement).closest('input, textarea')) {
-			ann.setTool(ann.activeTool === 'freetext' ? 'none' : 'freetext');
-		}
 		// N → Note tool
 		if (e.key === 'n' && !(e.target as HTMLElement).closest('input, textarea')) {
 			ann.setTool(ann.activeTool === 'note' ? 'none' : 'note');
@@ -283,7 +279,7 @@
 			ondragleave={() => handleDragLeave('right')}
 			ondrop={(e) => handleDrop(e, 'right')}
 		>
-			<PdfPanel bind:this={rightPanel} pdfPath={rightPdfPath} label="Modified" side="right" highlights={sidebarTab === 'text-diff' ? diff.rightHighlights : []} activeHighlightIndex={diff.selectedDifferenceIndex} validationHighlights={sidebarTab === 'typography' ? validation.rightValidationHighlights : []} onHighlightClick={navigateToDifference} onScrollChange={handleRightScroll} annotations={ann.annotations} selectedAnnotationId={ann.selectedId} annotationTool={ann.activeTool} onAnnotationCreate={handleAnnotationCreate} onAnnotationSelect={(id) => ann.selectAnnotation(id)} onAnnotationUpdate={(id, updates) => ann.updateAnnotation(id, updates)} annotationColor={ann.activeColor.rgb} />
+			<PdfPanel bind:this={rightPanel} pdfPath={rightPdfPath} label="Modified" side="right" highlights={sidebarTab === 'text-diff' ? diff.rightHighlights : []} activeHighlightIndex={diff.selectedDifferenceIndex} validationHighlights={sidebarTab === 'typography' ? validation.rightValidationHighlights : []} onHighlightClick={navigateToDifference} onScrollChange={handleRightScroll} annotations={ann.annotations} selectedAnnotationId={ann.selectedId} annotationTool={ann.activeTool} onAnnotationCreate={handleAnnotationCreate} onAnnotationSelect={(id) => ann.selectAnnotation(id)} onAnnotationUpdate={(id, updates) => ann.updateAnnotation(id, updates)} onAnnotationDelete={(id) => ann.removeAnnotation(id)} annotationColor={ann.activeColor.rgb} />
 		</div>
 
 		<DiffSidebar
