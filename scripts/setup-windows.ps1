@@ -10,6 +10,9 @@ param(
 $ErrorActionPreference = "Stop"
 $SkipDeps = $SkipInstall -or $BuildOnly
 
+# Ensure we run from project root regardless of where the script is called from
+Set-Location (Split-Path $PSScriptRoot -Parent)
+
 Write-Host "`n=== PDF Compare - Windows Build Setup ===" -ForegroundColor Cyan
 Write-Host ""
 
@@ -95,6 +98,7 @@ if (-not $SkipDeps) {
 
     # --- Step 5: Install Python dependencies ---
     Write-Host "[5/5] Installing Python dependencies..." -ForegroundColor Green
+    & $pythonCmd -m pip install --upgrade pip --quiet
     Push-Location pdfdiff
     & $pythonCmd -m pip install -e ".[dev]"
     if ($LASTEXITCODE -ne 0) {
