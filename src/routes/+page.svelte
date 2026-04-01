@@ -1,14 +1,17 @@
 <script lang="ts">
-	import { open, save } from '@tauri-apps/plugin-dialog';
+	import { open, save, message, ask } from '@tauri-apps/plugin-dialog';
 	import { invoke } from '@tauri-apps/api/core';
+	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import PdfPanel from '$lib/components/PdfPanel.svelte';
 	import DiffSidebar from '$lib/components/DiffSidebar.svelte';
 	import TextDiffTab from '$lib/components/TextDiffTab.svelte';
 	import TypoDiffTab from '$lib/components/TypoDiffTab.svelte';
 	import AnnotationToolbar from '$lib/components/AnnotationToolbar.svelte';
+	import AnnotationTab from '$lib/components/AnnotationTab.svelte';
 	import { getDiffStore } from '$lib/stores/diffStore.svelte';
 	import { getValidationStore } from '$lib/stores/validationStore.svelte';
 	import { getAnnotationStore } from '$lib/stores/annotationStore.svelte';
+	import { setupAppMenu } from '$lib/services/app-menu';
 	import type { Annotation } from '$lib/types/annotations';
 	import '../styles/macos-theme.css';
 
@@ -17,6 +20,32 @@
 	let isDraggingLeft = $state(false);
 	let isDraggingRight = $state(false);
 
+	// Splitter drag state
+	let splitRatio = $state(0.5);
+	let isSplitterDragging = $state(false);
+	let splitViewEl: HTMLElement | undefined = $state();
+
+	function handleSplitterDown(e: MouseEvent) {
+		e.preventDefault();
+		isSplitterDragging = true;
+
+		const onMove = (ev: MouseEvent) => {
+			if (!splitViewEl) return;
+			const rect = splitViewEl.getBoundingClientRect();
+			const x = ev.clientX - rect.left;
+			splitRatio = Math.max(0.2, Math.min(0.8, x / rect.width));
+		};
+
+		const onUp = () => {
+			isSplitterDragging = false;
+			window.removeEventListener('mousemove', onMove);
+			window.removeEventListener('mouseup', onUp);
+		};
+
+		window.addEventListener('mousemove', onMove);
+		window.addEventListener('mouseup', onUp);
+	}
+
 	const diff = getDiffStore();
 	const validation = getValidationStore();
 	const ann = getAnnotationStore();
@@ -24,12 +53,24 @@
 
 	// Sidebar state
 	let sidebarOpen = $state(false);
-	let sidebarTab: 'text-diff' | 'typography' = $state('text-diff');
+	let sidebarTab: 'text-diff' | 'typography' | 'annotations' = $state('text-diff');
+
+	// Setup native menu
+	$effect(() => {
+		setupAppMenu({
+			openLeft: () => openPdf('left'),
+			openRight: () => openPdf('right'),
+			save: () => { if (ann.isDirty) saveAnnotations(); },
+			compare: () => { if (canCompare) comparePdfs(); },
+			toggleSidebar: () => { sidebarOpen = !sidebarOpen; },
+			toggleSync: () => { scrollSyncEnabled = !scrollSyncEnabled; },
+		});
+	});
 
 	async function openPdf(side: 'left' | 'right') {
 		// Warn about unsaved annotations
 		if (ann.isDirty) {
-			const discard = confirm('Unsaved annotations will be lost. Continue?');
+			const discard = await ask('Unsaved annotations will be lost. Continue?', { title: 'Unsaved Changes', kind: 'warning' });
 			if (!discard) return;
 		}
 
@@ -68,9 +109,9 @@
 				annotations: ann.toExportJson()
 			});
 			ann.markSaved();
-			alert('Annotations saved successfully.');
+			await message('Annotations saved successfully.', { title: 'Saved' });
 		} catch (e) {
-			alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+			await message(`Save failed: ${e instanceof Error ? e.message : String(e)}`, { title: 'Error', kind: 'error' });
 		}
 	}
 
@@ -78,16 +119,43 @@
 		ann.addAnnotation(a);
 	}
 
+	function isTyping(e: KeyboardEvent): boolean {
+		const tag = (e.target as HTMLElement).tagName;
+		return tag === 'INPUT' || tag === 'TEXTAREA';
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
+		const mod = e.metaKey || e.ctrlKey;
+
+		// Cmd/Ctrl+O → Open PDF
+		if (mod && e.key === 'o') {
+			e.preventDefault();
+			openPdf(e.shiftKey ? 'right' : 'left');
+		}
 		// Cmd/Ctrl+S → Save annotations
-		if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+		if (mod && e.key === 's') {
 			e.preventDefault();
 			if (ann.isDirty) saveAnnotations();
 		}
+		// Cmd/Ctrl+D → Compare
+		if (mod && e.key === 'd') {
+			e.preventDefault();
+			if (canCompare) comparePdfs();
+		}
+		// Arrow Up/Down → Navigate differences
+		if (!isTyping(e) && diff.diffResult && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+			e.preventDefault();
+			const current = diff.selectedDifferenceIndex ?? -1;
+			const total = diff.diffResult.differences.length;
+			if (e.key === 'ArrowDown') {
+				navigateToDifference(Math.min(current + 1, total - 1));
+			} else {
+				navigateToDifference(Math.max(current - 1, 0));
+			}
+		}
 		// Delete/Backspace → Remove selected annotation
 		if ((e.key === 'Delete' || e.key === 'Backspace') && ann.selectedId) {
-			// Don't delete if user is typing in an input
-			if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+			if (isTyping(e)) return;
 			ann.removeAnnotation(ann.selectedId);
 		}
 		// Escape → Deselect tool
@@ -96,11 +164,11 @@
 			ann.selectAnnotation(null);
 		}
 		// H → Highlight tool
-		if (e.key === 'h' && !(e.target as HTMLElement).closest('input, textarea')) {
+		if (e.key === 'h' && !isTyping(e)) {
 			ann.setTool(ann.activeTool === 'highlight' ? 'none' : 'highlight');
 		}
 		// N → Note tool
-		if (e.key === 'n' && !(e.target as HTMLElement).closest('input, textarea')) {
+		if (e.key === 'n' && !isTyping(e)) {
 			ann.setTool(ann.activeTool === 'note' ? 'none' : 'note');
 		}
 	}
@@ -147,6 +215,14 @@
 		}
 	}
 
+	function navigateToAnnotation(id: string) {
+		ann.selectAnnotation(id);
+		const a = ann.annotations.find(a => a.id === id);
+		if (!a || !rightPanel) return;
+		const y = a.type === 'note' ? a.point[1] : a.bbox[1];
+		rightPanel.scrollToPagePosition(a.page, y);
+	}
+
 	function navigateToIssue(issue: import('$lib/types/validation').ValidationIssue, side: 'left' | 'right') {
 		const panel = side === 'left' ? leftPanel : rightPanel;
 		if (panel && issue.page) {
@@ -154,25 +230,46 @@
 		}
 	}
 
-	function handleDragOver(e: DragEvent, side: 'left' | 'right') {
-		e.preventDefault();
-		if (side === 'left') isDraggingLeft = true;
-		else isDraggingRight = true;
-	}
+	// Tauri native file drop via webview event
+	$effect(() => {
+		const webview = getCurrentWebview();
+		let unlisten: (() => void) | undefined;
 
-	function handleDragLeave(side: 'left' | 'right') {
-		if (side === 'left') isDraggingLeft = false;
-		else isDraggingRight = false;
-	}
+		webview.onDragDropEvent((event) => {
+			const payload = event.payload;
+			if (payload.type === 'enter' || payload.type === 'over') {
+				// Determine which panel based on drop position (left half vs right half)
+				const midX = window.innerWidth / 2;
+				const x = payload.position.x;
+				isDraggingLeft = x < midX;
+				isDraggingRight = x >= midX;
+			} else if (payload.type === 'drop') {
+				isDraggingLeft = false;
+				isDraggingRight = false;
 
-	function handleDrop(e: DragEvent, side: 'left' | 'right') {
-		e.preventDefault();
-		if (side === 'left') isDraggingLeft = false;
-		else isDraggingRight = false;
+				const pdfFiles = payload.paths.filter(p => p.toLowerCase().endsWith('.pdf'));
+				if (pdfFiles.length === 0) return;
 
-		// Tauri's native file drop will be used in later phases
-		// for now, the file dialog is the primary way to open PDFs
-	}
+				const midX = window.innerWidth / 2;
+				const side = payload.position.x < midX ? 'left' : 'right';
+
+				if (side === 'left') {
+					leftPdfPath = pdfFiles[0];
+				} else {
+					rightPdfPath = pdfFiles[0];
+				}
+				diff.clearDiff();
+				validation.clearValidation();
+				ann.clearAnnotations();
+				sidebarOpen = false;
+			} else if (payload.type === 'leave') {
+				isDraggingLeft = false;
+				isDraggingRight = false;
+			}
+		}).then(fn => { unlisten = fn; });
+
+		return () => { unlisten?.(); };
+	});
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -204,33 +301,44 @@
 				<span class="toolbar-status">
 					{diff.isComparing ? 'Comparing...' : 'Validating...'}
 				</span>
-			{:else if diff.diffResult}
-				<button
-					class="toolbar-btn summary-btn"
-					onclick={() => sidebarOpen = !sidebarOpen}
-					title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
-				>
-					<span class="summary-diff">
-						{diff.diffResult.summary.added}+ {diff.diffResult.summary.removed}− {diff.diffResult.summary.changed}~
-					</span>
-					{#if validation.resolvedIssues.length > 0 || validation.newIssues.length > 0}
-						<span class="summary-sep">|</span>
-						<span class="summary-validation">
-							{#if validation.resolvedIssues.length > 0}
-								<span class="summary-resolved">{validation.resolvedIssues.length} fixed</span>
-							{/if}
-							{#if validation.newIssues.length > 0}
-								<span class="summary-new">{validation.newIssues.length} new</span>
-							{/if}
-						</span>
-					{/if}
-					<span class="sidebar-indicator">{sidebarOpen ? '▶' : '◀'}</span>
-				</button>
-			{:else if diff.compareError}
+			{/if}
+			{#if diff.compareError}
 				<span class="toolbar-status diff-error" title={diff.compareError}>
 					{diff.compareError.length > 60 ? diff.compareError.slice(0, 60) + '...' : diff.compareError}
 				</span>
 			{/if}
+			<button
+				class="toolbar-btn summary-btn"
+				onclick={() => sidebarOpen = !sidebarOpen}
+				title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+			>
+				{#if diff.diffResult}
+					<span class="summary-diff">
+						{diff.diffResult.summary.added}+ {diff.diffResult.summary.removed}− {diff.diffResult.summary.changed}~
+					</span>
+				{/if}
+				{#if validation.resolvedIssues.length > 0 || validation.newIssues.length > 0}
+					<span class="summary-sep">|</span>
+					<span class="summary-validation">
+						{#if validation.resolvedIssues.length > 0}
+							<span class="summary-resolved">{validation.resolvedIssues.length} fixed</span>
+						{/if}
+						{#if validation.newIssues.length > 0}
+							<span class="summary-new">{validation.newIssues.length} new</span>
+						{/if}
+					</span>
+				{/if}
+				{#if ann.annotations.length > 0}
+					{#if diff.diffResult || validation.resolvedIssues.length > 0 || validation.newIssues.length > 0}
+						<span class="summary-sep">|</span>
+					{/if}
+					<span class="summary-annotations">{ann.annotations.length} &#9998;</span>
+				{/if}
+				{#if !diff.diffResult && ann.annotations.length === 0}
+					<span class="summary-placeholder">Sidebar</span>
+				{/if}
+				<span class="sidebar-indicator">{sidebarOpen ? '▶' : '◀'}</span>
+			</button>
 			<button
 				class="toolbar-btn compare-btn"
 				onclick={comparePdfs}
@@ -255,29 +363,26 @@
 		/>
 	{/if}
 
-	<main class="split-view">
+	<main class="split-view" bind:this={splitViewEl} class:splitter-dragging={isSplitterDragging}>
 		<div
 			class="panel-container"
 			class:drag-over={isDraggingLeft}
 			role="region"
 			aria-label="Left PDF"
-			ondragover={(e) => handleDragOver(e, 'left')}
-			ondragleave={() => handleDragLeave('left')}
-			ondrop={(e) => handleDrop(e, 'left')}
+			style="flex: {splitRatio}"
 		>
 			<PdfPanel bind:this={leftPanel} pdfPath={leftPdfPath} label="Original" side="left" highlights={sidebarTab === 'text-diff' ? diff.leftHighlights : []} activeHighlightIndex={diff.selectedDifferenceIndex} validationHighlights={sidebarTab === 'typography' ? validation.leftValidationHighlights : []} onHighlightClick={navigateToDifference} onScrollChange={handleLeftScroll} />
 		</div>
 
-		<div class="splitter"></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="splitter" onmousedown={handleSplitterDown}></div>
 
 		<div
 			class="panel-container"
 			class:drag-over={isDraggingRight}
 			role="region"
 			aria-label="Right PDF"
-			ondragover={(e) => handleDragOver(e, 'right')}
-			ondragleave={() => handleDragLeave('right')}
-			ondrop={(e) => handleDrop(e, 'right')}
+			style="flex: {1 - splitRatio}"
 		>
 			<PdfPanel bind:this={rightPanel} pdfPath={rightPdfPath} label="Modified" side="right" highlights={sidebarTab === 'text-diff' ? diff.rightHighlights : []} activeHighlightIndex={diff.selectedDifferenceIndex} validationHighlights={sidebarTab === 'typography' ? validation.rightValidationHighlights : []} onHighlightClick={navigateToDifference} onScrollChange={handleRightScroll} annotations={ann.annotations} selectedAnnotationId={ann.selectedId} annotationTool={ann.activeTool} onAnnotationCreate={handleAnnotationCreate} onAnnotationSelect={(id) => ann.selectAnnotation(id)} onAnnotationUpdate={(id, updates) => ann.updateAnnotation(id, updates)} onAnnotationDelete={(id) => ann.removeAnnotation(id)} annotationColor={ann.activeColor.rgb} />
 		</div>
@@ -304,6 +409,13 @@
 					validationError={validation.validationError}
 					hasReports={!!validation.leftReport && !!validation.rightReport}
 					onIssueClick={navigateToIssue}
+				/>
+			{/snippet}
+			{#snippet annotationsContent()}
+				<AnnotationTab
+					annotations={ann.annotations}
+					selectedId={ann.selectedId}
+					onSelect={navigateToAnnotation}
 				/>
 			{/snippet}
 		</DiffSidebar>
@@ -385,7 +497,6 @@
 	}
 
 	.panel-container {
-		flex: 1;
 		min-width: 0;
 		border-radius: var(--radius-md);
 		overflow: hidden;
@@ -401,6 +512,22 @@
 		width: var(--spacing-sm);
 		cursor: col-resize;
 		flex-shrink: 0;
+		border-radius: 2px;
+		transition: background 0.15s;
+	}
+
+	.splitter:hover {
+		background: rgba(0, 0, 0, 0.08);
+	}
+
+	.splitter-dragging .splitter {
+		background: var(--accent-blue, #007aff);
+		opacity: 0.3;
+	}
+
+	.splitter-dragging {
+		cursor: col-resize;
+		user-select: none;
 	}
 
 	.compare-btn {
@@ -459,6 +586,14 @@
 
 	.summary-new {
 		color: var(--accent-orange);
+	}
+
+	.summary-annotations {
+		color: var(--accent-blue);
+	}
+
+	.summary-placeholder {
+		color: var(--text-secondary);
 	}
 
 	.sidebar-indicator {

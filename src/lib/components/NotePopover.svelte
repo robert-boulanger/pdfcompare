@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tick } from 'svelte';
-
 	interface Props {
 		x: number;
 		y: number;
@@ -14,18 +12,20 @@
 
 	let { x, y, text = '', placeholder = 'Add a note...', readonly = false, onSubmit, onCancel, onDelete }: Props = $props();
 
-	// Initialize with text prop value (intentionally not reactive to prop changes)
 	let inputText = $state('');
 	let textareaEl: HTMLTextAreaElement | undefined = $state();
+	let initialized = false;
 
+	// Set initial text and focus once on mount
 	$effect(() => {
-		inputText = text;
-		tick().then(() => {
-			if (textareaEl && !readonly) {
-				textareaEl.focus();
-				textareaEl.select();
-			}
-		});
+		if (!initialized) {
+			initialized = true;
+			inputText = text;
+		}
+		if (textareaEl && !readonly) {
+			textareaEl.focus();
+			textareaEl.select();
+		}
 	});
 
 	function handleKeydown(e: KeyboardEvent) {

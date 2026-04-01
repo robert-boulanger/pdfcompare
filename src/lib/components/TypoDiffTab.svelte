@@ -34,7 +34,7 @@
 {:else if validationError}
 	<div class="empty-state error">{validationError}</div>
 {:else if !hasReports}
-	<div class="empty-state">No validation results yet.</div>
+	<div class="empty-state">Run Compare to see typographic validation.</div>
 {:else if resolvedIssues.length === 0 && newIssues.length === 0 && commonIssues.length === 0}
 	<div class="empty-state success">No typographic issues found.</div>
 {:else}

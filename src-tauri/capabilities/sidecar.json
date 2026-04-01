@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "sidecar",
-  "description": "Permission to execute the pdfdiff sidecar binary",
+  "description": "Permission to execute the pdfdiff sidecar binary with restricted arguments",
   "windows": ["main"],
   "permissions": [
     {
@@ -10,7 +10,12 @@
         {
           "name": "pdfdiff",
           "sidecar": true,
-          "args": true
+          "args": [
+            {
+              "validator": "regex",
+              "value": "^(diff|validate|annotate|visual-diff|detect|--json|--dpi|--word-spacing-factor|--annotations|[\\d.]+|/.+|[A-Za-z]:\\\\.+)$"
+            }
+          ]
         }
       ]
     }

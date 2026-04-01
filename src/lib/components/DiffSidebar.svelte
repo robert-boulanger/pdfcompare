@@ -3,14 +3,15 @@
 
 	interface Props {
 		isOpen: boolean;
-		activeTab: 'text-diff' | 'typography';
-		onTabChange: (tab: 'text-diff' | 'typography') => void;
+		activeTab: 'text-diff' | 'typography' | 'annotations';
+		onTabChange: (tab: 'text-diff' | 'typography' | 'annotations') => void;
 		onToggle: () => void;
 		textDiffContent: Snippet;
 		typographyContent: Snippet;
+		annotationsContent: Snippet;
 	}
 
-	let { isOpen, activeTab, onTabChange, onToggle, textDiffContent, typographyContent }: Props = $props();
+	let { isOpen, activeTab, onTabChange, onToggle, textDiffContent, typographyContent, annotationsContent }: Props = $props();
 
 	let sidebarWidth = $state(320);
 	let isResizing = $state(false);
@@ -68,6 +69,13 @@
 				>
 					Typografie
 				</button>
+				<button
+					class="segment"
+					class:active={activeTab === 'annotations'}
+					onclick={() => onTabChange('annotations')}
+				>
+					Notizen
+				</button>
 			</div>
 			<button class="close-btn" onclick={onToggle} title="Close sidebar">✕</button>
 		</div>
@@ -76,8 +84,10 @@
 		<div class="sidebar-content">
 			{#if activeTab === 'text-diff'}
 				{@render textDiffContent()}
-			{:else}
+			{:else if activeTab === 'typography'}
 				{@render typographyContent()}
+			{:else}
+				{@render annotationsContent()}
 			{/if}
 		</div>
 	</div>

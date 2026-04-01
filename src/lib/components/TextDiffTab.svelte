@@ -36,7 +36,7 @@
 </script>
 
 {#if !diffResult}
-	<div class="empty-state">No comparison results yet.</div>
+	<div class="empty-state">Run Compare to see text differences.</div>
 {:else if diffResult.differences.length === 0}
 	<div class="empty-state">No differences found.</div>
 {:else}
