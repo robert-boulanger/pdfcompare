@@ -13,7 +13,7 @@
           "args": [
             {
               "validator": "regex",
-              "value": "^(diff|validate|annotate|visual-diff|detect|--json|--dpi|--word-spacing-factor|--annotations|[\\d.]+|/.+|[A-Za-z]:\\\\.+)$"
+              "value": "^(diff|validate|annotate|visual-diff|detect|--json|--dpi|--word-spacing-factor|--annotations|[\\d.]+|/.+\\.pdf|[A-Za-z]:\\\\.+\\.pdf)$"
             }
           ]
         }

@@ -230,6 +230,19 @@
 		}
 	}
 
+	function applyDrop(filePath: string, dropX: number) {
+		const midX = window.innerWidth / 2;
+		if (dropX < midX) {
+			leftPdfPath = filePath;
+		} else {
+			rightPdfPath = filePath;
+		}
+		diff.clearDiff();
+		validation.clearValidation();
+		ann.clearAnnotations();
+		sidebarOpen = false;
+	}
+
 	// Tauri native file drop via webview event
 	$effect(() => {
 		const webview = getCurrentWebview();
@@ -250,18 +263,16 @@
 				const pdfFiles = payload.paths.filter(p => p.toLowerCase().endsWith('.pdf'));
 				if (pdfFiles.length === 0) return;
 
-				const midX = window.innerWidth / 2;
-				const side = payload.position.x < midX ? 'left' : 'right';
-
-				if (side === 'left') {
-					leftPdfPath = pdfFiles[0];
-				} else {
-					rightPdfPath = pdfFiles[0];
+				// Warn about unsaved annotations before replacing
+				if (ann.isDirty) {
+					ask('Unsaved annotations will be lost. Continue?', { title: 'Unsaved Changes', kind: 'warning' }).then(discard => {
+						if (!discard) return;
+						applyDrop(pdfFiles[0], payload.position.x);
+					});
+					return;
 				}
-				diff.clearDiff();
-				validation.clearValidation();
-				ann.clearAnnotations();
-				sidebarOpen = false;
+
+				applyDrop(pdfFiles[0], payload.position.x);
 			} else if (payload.type === 'leave') {
 				isDraggingLeft = false;
 				isDraggingRight = false;

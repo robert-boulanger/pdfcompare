@@ -17,15 +17,18 @@
 	}
 
 	let thumbs: ThumbData[] = $state([]);
+	let renderGeneration = 0;
 
 	$effect(() => {
-		// Re-render thumbnails when pdfDoc changes
 		const doc = pdfDoc;
 		if (!doc) return;
+
+		const generation = ++renderGeneration;
 
 		const renderAll = async () => {
 			const result: ThumbData[] = [];
 			for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+				if (generation !== renderGeneration) return;
 				const page = await doc.getPage(pageNum);
 				const viewport = page.getViewport({ scale: THUMB_SCALE });
 
@@ -40,7 +43,9 @@
 
 				result.push({ pageNum, canvas });
 			}
-			thumbs = result;
+			if (generation === renderGeneration) {
+				thumbs = result;
+			}
 		};
 
 		renderAll();

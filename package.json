@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:sidecar": "cd pdfdiff && pip install -e '.[dev]' && pyinstaller pdfdiff.spec --noconfirm && node -e \"const fs=require('fs'),{execSync}=require('child_process');const t=execSync('rustc -vV').toString().match(/host: (\\S+)/)[1];const ext=process.platform==='win32'?'.exe':'';fs.copyFileSync('dist/pdfdiff'+ext,'../src-tauri/binaries/pdfdiff-'+t+ext);console.log('Copied sidecar to binaries/pdfdiff-'+t+ext)\"",
+    "build:app": "tauri build",
+    "build:all": "npm run build:sidecar && npm run build:app"
   },
   "license": "MIT",
   "dependencies": {

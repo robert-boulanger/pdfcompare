@@ -12,3 +12,4 @@ pdfdiff/build
 pdfdiff/dist
 pdfdiff/*.egg-info
 pdfdiff/*.egg
+.svelte-kit
